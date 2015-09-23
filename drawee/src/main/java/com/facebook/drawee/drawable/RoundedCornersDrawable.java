@@ -1,37 +1,43 @@
 /*
- * Copyright (c) 2015-present, Facebook, Inc.
- * All rights reserved.
+ * Copyright (c) 2015-present, Facebook, Inc. All rights reserved.
  *
- * This source code is licensed under the BSD-style license found in the
- * LICENSE file in the root directory of this source tree. An additional grant
- * of patent rights can be found in the PATENTS file in the same directory.
+ * This source code is licensed under the BSD-style license found in the LICENSE file in the root
+ * directory of this source tree. An additional grant of patent rights can be found in the PATENTS
+ * file in the same directory.
  */
 
 package com.facebook.drawee.drawable;
 
+import java.lang.ref.SoftReference;
+import java.util.Arrays;
+import java.util.concurrent.ConcurrentHashMap;
+
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.Xfermode;
 import android.graphics.drawable.Drawable;
+import android.util.Log;
 
 import com.facebook.common.internal.Preconditions;
 import com.facebook.common.internal.VisibleForTesting;
 
-import java.util.Arrays;
-
 /**
  * Drawable that draws underlying drawable with rounded corners.
  */
-public class RoundedCornersDrawable extends ForwardingDrawable implements Rounded {
+public class RoundedCornersDrawable extends ForwardingDrawable {
 
   public enum Type {
     /**
-     * Draws rounded corners on top of the underlying drawable by overlaying a solid color which
-     * is specified by {@code setOverlayColor}. This option should only be used when the
-     * background beneath the underlying drawable is static and of the same solid color.
+     * Draws rounded corners on top of the underlying drawable by overlaying a solid color which is
+     * specified by {@code setOverlayColor}. This option should only be used when the background
+     * beneath the underlying drawable is static and of the same solid color.
      */
     OVERLAY_COLOR,
 
@@ -42,13 +48,20 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
     CLIPPING
   }
 
-  @VisibleForTesting Type mType = Type.OVERLAY_COLOR;
-  @VisibleForTesting final float[] mRadii = new float[8];
-  @VisibleForTesting final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-  @VisibleForTesting boolean mIsCircle = false;
-  @VisibleForTesting float mBorderWidth = 0;
-  @VisibleForTesting int mBorderColor = Color.TRANSPARENT;
-  @VisibleForTesting int mOverlayColor = Color.TRANSPARENT;
+  @VisibleForTesting
+  Type mType = Type.OVERLAY_COLOR;
+  @VisibleForTesting
+  final float[] mRadii = new float[8];
+  @VisibleForTesting
+  final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+  @VisibleForTesting
+  boolean mIsCircle = false;
+  @VisibleForTesting
+  float mBorderWidth = 0;
+  @VisibleForTesting
+  int mBorderColor = Color.TRANSPARENT;
+  @VisibleForTesting
+  int mOverlayColor = Color.TRANSPARENT;
   private final Path mPath = new Path();
   private final RectF mTempRectangle = new RectF();
 
@@ -76,7 +89,6 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
    *
    * @param isCircle whether or not to round as circle
    */
-  @Override
   public void setCircle(boolean isCircle) {
     mIsCircle = isCircle;
     updatePath();
@@ -88,7 +100,6 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
    *
    * @param radius corner radius in pixels
    */
-  @Override
   public void setRadius(float radius) {
     Arrays.fill(mRadii, radius);
     updatePath();
@@ -96,13 +107,11 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
   }
 
   /**
-   * Sets radii values to be used for rounding.
-   * Each corner receive two radius values [X, Y]. The corners are ordered
-   * top-left, top-right, bottom-right, bottom-left
+   * Sets radii values to be used for rounding. Each corner receive two radius values [X, Y]. The
+   * corners are ordered top-left, top-right, bottom-right, bottom-left
    *
    * @param radii Array of 8 values, 4 pairs of [X,Y] radii
    */
-  @Override
   public void setRadii(float[] radii) {
     if (radii == null) {
       Arrays.fill(mRadii, 0);
@@ -121,15 +130,18 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
    */
   public void setOverlayColor(int overlayColor) {
     mOverlayColor = overlayColor;
+    if (overlayColor != 0) {// 如果传入圆形图片的背景底色了，就不需要用遮罩
+      mWithOutPorterDuff = true;
+    }
     invalidateSelf();
   }
 
   /**
    * Sets the border
+   *
    * @param color of the border
    * @param width of the border
    */
-  @Override
   public void setBorder(int color, float width) {
     mBorderColor = color;
     mBorderWidth = width;
@@ -146,17 +158,14 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
   private void updatePath() {
     mPath.reset();
     mTempRectangle.set(getBounds());
-    mTempRectangle.inset(mBorderWidth/2, mBorderWidth/2);
+    mTempRectangle.inset(mBorderWidth / 2, mBorderWidth / 2);
     if (mIsCircle) {
-      mPath.addCircle(
-          mTempRectangle.centerX(),
-          mTempRectangle.centerY(),
-          Math.min(mTempRectangle.width(), mTempRectangle.height())/2,
-          Path.Direction.CW);
+      mPath.addCircle(mTempRectangle.centerX(), mTempRectangle.centerY(),
+              Math.min(mTempRectangle.width(), mTempRectangle.height()) / 2, Path.Direction.CW);
     } else {
       mPath.addRoundRect(mTempRectangle, mRadii, Path.Direction.CW);
     }
-    mTempRectangle.inset(-mBorderWidth/2, -mBorderWidth/2);
+    mTempRectangle.inset(-mBorderWidth / 2, -mBorderWidth / 2);
   }
 
   @Override
@@ -172,12 +181,31 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
         canvas.restoreToCount(saveCount);
         break;
       case OVERLAY_COLOR:
+
+        if (mIsCircle && !mWithOutPorterDuff) {// 遮罩得到圆形
+          int w = bounds.width();
+          int h = bounds.height();
+          // if (mMaskBitmap == null || mMaskBitmap.isRecycled() || w != mLastW || h != mLastH)
+          // createMask(w, h);
+          Bitmap mMaskBitmap = MaskUtils.createMask(w, h);
+          if (mMaskBitmap != null) {
+            mCirclePaint.setFilterBitmap(false);
+            int i = canvas.saveLayer(0F, 0F, w, h, null, Canvas.ALL_SAVE_FLAG);
+            getCurrent().setBounds(0, 0, w, h);
+            super.draw(canvas);
+            mCirclePaint.setXfermode(MASK_XFERMODE);
+            canvas.drawBitmap(mMaskBitmap, 0F, 0F, mCirclePaint);
+            mCirclePaint.setXfermode(null);
+            canvas.restoreToCount(i);
+            break;
+          }
+        }
+
         super.draw(canvas);
         mPaint.setColor(mOverlayColor);
         mPaint.setStyle(Paint.Style.FILL);
         mPath.setFillType(Path.FillType.INVERSE_EVEN_ODD);
         canvas.drawPath(mPath, mPaint);
-
         if (mIsCircle) {
           // INVERSE_EVEN_ODD will only draw inverse circle within its bounding box, so we need to
           // fill the rest manually if the bounds are not square.
@@ -185,21 +213,13 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
           float paddingV = (bounds.height() - bounds.width() + mBorderWidth) / 2f;
           if (paddingH > 0) {
             canvas.drawRect(bounds.left, bounds.top, bounds.left + paddingH, bounds.bottom, mPaint);
-            canvas.drawRect(
-                bounds.right - paddingH,
-                bounds.top,
-                bounds.right,
-                bounds.bottom,
-                mPaint);
+            canvas.drawRect(bounds.right - paddingH, bounds.top, bounds.right, bounds.bottom,
+                    mPaint);
           }
           if (paddingV > 0) {
             canvas.drawRect(bounds.left, bounds.top, bounds.right, bounds.top + paddingV, mPaint);
-            canvas.drawRect(
-                bounds.left,
-                bounds.bottom - paddingV,
-                bounds.right,
-                bounds.bottom,
-                mPaint);
+            canvas.drawRect(bounds.left, bounds.bottom - paddingV, bounds.right, bounds.bottom,
+                    mPaint);
           }
         }
         break;
@@ -213,4 +233,46 @@ public class RoundedCornersDrawable extends ForwardingDrawable implements Rounde
       canvas.drawPath(mPath, mPaint);
     }
   }
+
+  private static final Xfermode MASK_XFERMODE = new PorterDuffXfermode(PorterDuff.Mode.DST_IN);
+  private Paint mCirclePaint = new Paint();
+  /**
+   * 如果圆形图片有底色的，建议传入底色OverlayColor，这样可以避免用遮罩，避免占用更多内存
+   */
+  private boolean mWithOutPorterDuff;
+
+  private static class MaskUtils {
+
+    private static ConcurrentHashMap<String, SoftReference<Bitmap>> bitmaps;
+
+    static {
+      bitmaps = new ConcurrentHashMap<String, SoftReference<Bitmap>>();
+    }
+
+    private static Bitmap createMask(int w, int h) {
+      String key = w + "_" + h;
+      SoftReference<Bitmap> sef = bitmaps.get(key);
+      Bitmap mMaskBitmap = sef == null ? null : sef.get();
+      if (mMaskBitmap != null && !mMaskBitmap.isRecycled()) {
+        // Logger.e("simon", "获取旧的mask");
+        return mMaskBitmap;
+      }
+      try {
+        mMaskBitmap = Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(mMaskBitmap);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xff000000);
+        RectF rectf = new RectF(0F, 0F, w, h);
+        canvas.drawRoundRect(rectf, w * 1.0f / 2, h * 1.0f / 2, paint);
+        // Logger.e("simon", "创建新的mask");
+        bitmaps.put(key, new SoftReference<Bitmap>(mMaskBitmap));
+      } catch (Exception e) {
+        Log.e("simon", "mask bitmap error:" + e.getMessage());
+      } catch (OutOfMemoryError ex) {
+        Log.e("simon", "mask bitmap oom。。。");
+      }
+      return mMaskBitmap;
+    }
+  }
+
 }
